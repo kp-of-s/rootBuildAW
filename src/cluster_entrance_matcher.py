@@ -158,7 +158,11 @@ class ClusterEntranceMatcher:
                     {
                         "lat": float(row["lat"]),
                         "lon": float(row["lon"]),
-                        "meta": {k: (None if pd.isna(v) else v) for k, v in row.to_dict().items()}
+                        "meta": {
+                            k: (None if pd.isna(v) else v)
+                            for k, v in row.to_dict().items()
+                            if k != "group"
+                        }
                     } for _, row in group_df.iterrows()
                 ]
             }
