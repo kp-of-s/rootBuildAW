@@ -3,13 +3,14 @@ import numpy as np
 import pandas as pd
 import requests
 import logging
+import json
 from typing import Optional
 
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 
 class ClusterEntranceMatcher:
     """
-    points_df (lat, lon, group) 와 entrances_df (lat, lon, 기타 컬럼) 를 받아
+    points_df (lat, lon, cluster) 와 entrances_df (lat, lon, 기타 컬럼) 를 받아
     각 group 별로 '그룹 내 어떤 지점' 과 '가장 가까운 entrance' 를 매칭해 반환한다.
 
     주요 메서드:
@@ -18,7 +19,7 @@ class ClusterEntranceMatcher:
     """
     def __init__(self, points_df: pd.DataFrame, entrances_df: pd.DataFrame):
         # 입력 검증
-        if not {'lat','lon','group'}.issubset(points_df.columns):
+        if not {'lat','lon','cluster'}.issubset(points_df.columns):
             raise ValueError("points_df는 'lat','lon','group' 컬럼을 포함해야 합니다.")
         if not {'lat','lon'}.issubset(entrances_df.columns):
             raise ValueError("entrances_df는 'lat','lon' 컬럼을 포함해야 합니다.")
@@ -77,111 +78,91 @@ class ClusterEntranceMatcher:
         return {'distances': distances, 'durations': durations}
 
     # ---------- 공개 메서드 ----------
-    def match(self,
-              strategy: str = 'min_point',
-              sample_rate: Optional[int] = None,
-              use_osrm: bool = False,
-              osrm_url: Optional[str] = None,
-              exclude_noise: bool = True) -> pd.DataFrame:
+    def match(self, sample_rate: Optional[int], osrm_url: str, exclude_noise: bool) -> list[dict]:
         """
-        cluster별 가장 가까운 entrance 선택
-
-        Parameters
-        ----------
-        strategy : 'min_point'|'centroid'
-            'min_point' : 그룹 내 (샘플링된) 모든 점을 후보로 하여 실제 최단 거리를 기준으로 entrance 선택 (권장)
-            'centroid'  : 그룹 centroid(평균 좌표)만 사용하여 entrance 선택 (빠름)
-        sample_rate : None or int
-            min_point 전략에서 그룹 내 점을 샘플링할 때 사용.
-            None이면 모든 점 사용. int이면 각 그룹에서 최대 sample_rate 개의 점을 균등 샘플링.
-        use_osrm : bool
-            선택된 (group point, entrance) 쌍에 대해 OSRM를 호출하여 duration(초) 반환 여부.
-            (OSRM 호출은 선택된 쌍 개수만큼 수행)
-        osrm_url : str or None
-            OSRM 서버 URL (use_osrm=True일 때 필수)
-        exclude_noise : bool
-            group == -1 인 노이즈 그룹을 제외할지 여부
-        Returns
-        -------
-        DataFrame with columns:
-            group, rep_lat, rep_lon, entrance_idx, entr_lat, entr_lon, distance_m, duration_s (if use_osrm else NaN)
+        각 클러스터별로 대표 방문지점과 가장 가까운 진입점 매칭 후 JSON 반환
         """
-        groups = sorted(self.points_df['group'].unique())
+        groups = sorted(self.points_df['cluster'].unique())
         if exclude_noise and -1 in groups:
             groups = [g for g in groups if g != -1]
 
-        results = []
+        clusters_json = []
+
         for g in groups:
-            group_df = self.points_df[self.points_df['group'] == g]
+            group_df = self.points_df[self.points_df['cluster'] == g]
             if group_df.shape[0] == 0:
                 continue
 
             pts = group_df[['lat','lon']].values  # (N,2)
-            # 샘플링 처리 (균등 추출)
+
+            # 샘플링
             if sample_rate is not None and sample_rate > 0 and len(pts) > sample_rate:
                 idxs = np.linspace(0, len(pts)-1, sample_rate, dtype=int)
                 cand_pts = pts[idxs]
             else:
                 cand_pts = pts
 
-            if strategy == 'centroid':
-                rep = np.array([[pts[:,0].mean(), pts[:,1].mean()]])  # (1,2)
-                # compute haversine from rep to all entrances:
-                dists = self._haversine_matrix(rep, self._entrances_coords)  # (1,M)
-                j = int(np.argmin(dists[0]))
-                rep_lat, rep_lon = float(rep[0,0]), float(rep[0,1])
-                entr_lat, entr_lon = float(self._entrances_coords[j,0]), float(self._entrances_coords[j,1])
-                dist_m = float(dists[0,j])
-                duration_s = np.nan
-                # optional OSRM verification
-                if use_osrm:
-                    if osrm_url is None:
-                        raise ValueError("osrm_url required when use_osrm=True")
-                    tbl = self._osrm_table(rep, self._entrances_coords, osrm_url)
-                    duration_s = float(tbl['durations'][0, j]) if tbl['durations'].size else np.nan
-                    dist_m = float(tbl['distances'][0, j]) if tbl['distances'].size else dist_m
+            # Haversine 거리 기준 상위 N개 entrance 선택
+            N = 3
+            dmat = self._haversine_matrix(cand_pts, self._entrances_coords)  # (P, M)
+            flat_indices = np.argsort(dmat, axis=None)[:N]  # 가장 가까운 N개 flat index
+            p_indices, e_indices = np.unravel_index(flat_indices, dmat.shape)  # 각 인덱스 쌍
 
-            elif strategy == 'min_point':
-                # compute full (cand_pts x entrances) haversine matrix
-                dmat = self._haversine_matrix(cand_pts, self._entrances_coords)  # (P, M)
-                flat_idx = int(np.argmin(dmat))  # argmin over flattened array
-                p_idx, e_idx = divmod(flat_idx, dmat.shape[1])
+            entrances_info = []
+
+            for p_idx, e_idx in zip(p_indices, e_indices):
                 rep_lat, rep_lon = float(cand_pts[p_idx,0]), float(cand_pts[p_idx,1])
                 entr_lat, entr_lon = float(self._entrances_coords[e_idx,0]), float(self._entrances_coords[e_idx,1])
                 dist_m = float(dmat[p_idx, e_idx])
                 duration_s = np.nan
-                # optional OSRM verification for the selected pair only
-                if use_osrm:
-                    if osrm_url is None:
-                        raise ValueError("osrm_url required when use_osrm=True")
-                    try:
-                        tbl = self._osrm_table(np.array([[rep_lat, rep_lon]]), np.array([[entr_lat, entr_lon]]), osrm_url)
-                        duration_s = float(tbl['durations'][0,0]) if tbl['durations'].size else np.nan
-                        dist_m = float(tbl['distances'][0,0]) if tbl['distances'].size else dist_m
-                    except Exception as e:
-                        logging.warning(f"OSRM verification failed for group {g}: {e}")
-                e_idx = int(e_idx)
-            else:
-                raise ValueError("strategy must be 'min_point' or 'centroid'")
 
-            # 기록 (entrance index refers to index in entrances_df)
-            results.append({
-                'group': int(g),
-                'rep_lat': rep_lat,
-                'rep_lon': rep_lon,
-                'entrance_idx': int(e_idx),
-                'entr_lat': entr_lat,
-                'entr_lon': entr_lon,
-                'distance_m': dist_m,
-                'duration_s': duration_s
-            })
+                # OSRM Table API 호출
+                tbl = self._osrm_table(np.array([[rep_lat, rep_lon]]),
+                                    np.array([[entr_lat, entr_lon]]),
+                                    osrm_url)
+                if tbl['durations'].size > 0:
+                    duration_s = float(tbl['durations'][0,0])
+                if tbl['distances'].size > 0:
+                    dist_m = float(tbl['distances'][0,0])
 
-        df_res = pd.DataFrame(results, columns=['group','rep_lat','rep_lon','entrance_idx','entr_lat','entr_lon','distance_m','duration_s'])
-        # join with entrances_df to include original entrance metadata (if needed)
-        if not df_res.empty:
-            # map entrance_idx to original entrances row
-            entr_meta = self.entrances_df.reset_index().rename(columns={'index':'entrance_idx'})
-            df_out = df_res.merge(entr_meta, on='entrance_idx', how='left', suffixes=('','_entr'))
-        else:
-            df_out = df_res
-        return df_out
+                # entrance 메타데이터 안전하게 처리
+                entr_meta_row = self.entrances_df.reset_index().iloc[e_idx].to_dict()
+                safe_entr_meta = {k: (None if pd.isna(v) else v) for k, v in entr_meta_row.items()}
+
+                entrances_info.append({
+                    "lat": entr_lat,
+                    "lon": entr_lon,
+                    "distance_m": dist_m,
+                    "duration_s": duration_s,
+                    "meta": safe_entr_meta
+                })
+
+            # lat, lon 중복 제거
+            seen_coords = set()
+            unique_entrances = []
+            for ent in entrances_info:
+                coord = (ent["lat"], ent["lon"])
+                if coord not in seen_coords:
+                    seen_coords.add(coord)
+                    unique_entrances.append(ent)
+
+            # duration_s 기준으로 오름차순 정렬
+            unique_entrances.sort(key=lambda x: x["duration_s"] if not np.isnan(x["duration_s"]) else np.inf)
+
+            # point 메타데이터 안전 처리 후 JSON 구조 생성
+            cluster_dict = {
+                "cluster_id": int(g),
+                "representative": {"lat": rep_lat, "lon": rep_lon},
+                "entrances": unique_entrances,
+                "points": [
+                    {
+                        "lat": float(row["lat"]),
+                        "lon": float(row["lon"]),
+                        "meta": {k: (None if pd.isna(v) else v) for k, v in row.to_dict().items()}
+                    } for _, row in group_df.iterrows()
+                ]
+            }
+
+            clusters_json.append(cluster_dict)
+
+        return clusters_json

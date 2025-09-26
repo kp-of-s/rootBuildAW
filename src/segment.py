@@ -40,7 +40,7 @@ class Segment:
             return points
 
     @staticmethod
-    def create_segments_from_csv(points_df, eps: float = 0.0001, min_samples: int = 5):
+    def create_segments_from_csv(points_df, eps: float, min_samples: int):
         """
         전체 방문지점 CSV를 받아 DBSCAN으로 그룹핑하고
         Segment 인스턴스 리스트 반환.

@@ -7,6 +7,8 @@ from src.nearby_entrances import NearbyEntrances
 from src.isolated_filter import IsolatedFilter
 from src.visualization.visualizer import Visualizer
 from src.cluster_entrance_matcher import ClusterEntranceMatcher
+from src.config import Config
+import json
 import pandas as pd
 import glob
 
@@ -16,16 +18,13 @@ logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 def main(
         points_df,           # 전체 방문 지점 CSV 데이터프레임
         entrances_df,        # 진입점 CSV 데이터프레임
-        eps: float = 0.001,        # DBSCAN 클러스터링 반경 (좌표 단위, degree). 이 반경 내 포인트들을 같은 그룹으로 간주
-        min_samples: int = 5,      # DBSCAN 최소 샘플 수. eps 내 존재해야 클러스터로 인정되는 최소 포인트 수
-        distance_threshold: float = 50000,  # 진입점과 클러스터 외곽점 간 거리 임계값 (m). 이 거리 이하인 진입점만 인접 진입점으로 판단
-        time_threshold: float = 6000,       # 진입점과 클러스터 외곽점 간 주행 시간 임계값 (초). OSRM 경로 계산 기준
-        osrm_url: str = "http://localhost:5000"  # OSRM 서버 URL
+        config: Config,      # 설정 객체
+        region_name
     ):
     viz = Visualizer()
 
     # Segment 생성
-    segments = Segment.create_segments_from_csv(points_df, eps=eps, min_samples=min_samples)
+    segments = Segment.create_segments_from_csv(points_df, eps=config.eps, min_samples=config.min_samples)
     viz.plot_segments(segments)  # Segment + Hull 시각화
 
     # 진입점 좌표 로드
@@ -36,22 +35,42 @@ def main(
         ne = NearbyEntrances(
             seg,
             entrances_coords,
-            distance_threshold=distance_threshold,
-            time_threshold=time_threshold,
-            osrm_url=osrm_url
+            distance_threshold=config.distance_threshold,
+            time_threshold=config.time_threshold,
+            internal_sample_rate=config.internal_sample_rate,
+            osrm_url=config.osrm_url
         )
         seg.nearby_entrances = ne.compute_nearby()
-    viz.plot_nearby_entrances(segments, entrances_coords)  # Segment + NearbyEntrances 시각화
+    # viz.plot_nearby_entrances(segments, entrances_df)  # Segment + NearbyEntrances 시각화
 
 
     # 4️⃣ 고립점 필터링
-    filterer = IsolatedFilter(segments)
+    filterer = IsolatedFilter(
+        segments,
+        osrm_url=config.osrm_url,
+        max_travel_time=config.max_travel_time,
+        isolation_distance=config.isolation_distance
+    )
     final_points, final_entrances, removed_points = filterer.filter()
 
     logging.info("필?터링")
-    viz.plot_final_points(final_points, final_entrances, removed_points)  # 최종 결과 시각화
+    # viz.plot_final_points(final_points, final_entrances, removed_points)  # 최종 결과 시각화
 
     final_entrances_df = get_final_entrances_df(final_entrances, entrances_df)
+
+    matcher = ClusterEntranceMatcher(points_df, final_entrances_df)
+
+    clusters_json = matcher.match(
+        sample_rate=config.sample_rate,
+        osrm_url=config.osrm_url,
+        exclude_noise=config.exclude_noise
+    )
+
+    # viz.plot_matches(clusters_json)
+
+    with open("clusters.json", "w", encoding="utf-8") as f:
+        json.dump(region_name, f, ensure_ascii=False, indent=2)
+    
 
     return final_points, final_entrances
 
@@ -111,14 +130,15 @@ if __name__ == "__main__":
     entrances_csv = "data/IC.csv"
     entrances_df = pd.read_csv(entrances_csv)
 
-    # 3️⃣ main 실행
+    # 3️⃣ 설정 생성
+    config = Config()
+
+    
+    # 4️⃣ main 실행
     final_points, final_entrances = main(
         points_df,
         entrances_df,
-        eps=0.02,
-        min_samples=5,
-        distance_threshold=10000,
-        time_threshold=1800,
-        osrm_url="http://localhost:5000"
+        config,
+        region_name=region_name
     )
 

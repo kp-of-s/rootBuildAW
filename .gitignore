@@ -6,3 +6,5 @@
 /data/map/*
 /venv/*
 /south-korea-map.osm.pbf
+src/__pycache__
+src/visualization/__pycache__
