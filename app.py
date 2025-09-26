@@ -11,6 +11,7 @@ from src.config import Config
 import json
 import pandas as pd
 import glob
+from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 
@@ -25,7 +26,7 @@ def main(
 
     # Segment 생성
     segments = Segment.create_segments_from_csv(points_df, eps=config.eps, min_samples=config.min_samples)
-    viz.plot_segments(segments)  # Segment + Hull 시각화
+    # viz.plot_segments(segments)  # Segment + Hull 시각화
 
     # 진입점 좌표 로드
     entrances_coords = entrances_df[['lat', 'lon']].values
@@ -68,8 +69,8 @@ def main(
 
     # viz.plot_matches(clusters_json)
 
-    with open("clusters.json", "w", encoding="utf-8") as f:
-        json.dump(region_name, f, ensure_ascii=False, indent=2)
+    with open(f"{region_name}.json", "w", encoding="utf-8") as f:
+        json.dump(clusters_json, f, ensure_ascii=False, indent=2)
     
 
     return final_points, final_entrances
@@ -94,8 +95,11 @@ if __name__ == "__main__":
     import pandas as pd
 
     # 1️⃣ 지역 목록 읽기
-    region_list_df = pd.read_csv("data/region.csv")
-    regions = region_list_df['region'].tolist()
+    # region_list_df = pd.read_csv("data/region.csv")
+    # regions = region_list_df['region'].tolist()
+
+    csv_files = glob.glob("data/region/**/*.csv", recursive=True)
+    regions = [Path(f).stem for f in csv_files]
 
     # 2️⃣ 콘솔에서 선택
     print("지역 목록:")

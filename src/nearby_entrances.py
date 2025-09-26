@@ -224,5 +224,5 @@ class NearbyEntrances:
         with open(save_path, "w", encoding="utf-8") as f:
             json.dump(output, f, ensure_ascii=False, indent=2, default=numpy_json_encoder)
         """
-        logging.info(f"Segment {self.segment.group_id} 처리 완료: {len(self.nearby_entrances)} nearby entrances 저장됨 -> {save_path}")
+        # logging.info(f"Segment {self.segment.group_id} 처리 완료: {len(self.nearby_entrances)} nearby entrances 저장됨 -> {save_path}")
         return self.nearby_entrances

@@ -104,6 +104,6 @@ class IsolatedFilter:
         self.removed_points = np.vstack(non_empty_removed) if non_empty_removed else np.empty((0,2))
 
         logging.info(f"최종 방문 지점: {len(self.final_points)}개, 인접 진입점: {len(self.final_entrances)}개")
-        logging.info(f"제거된 방문지점: {len(self.removed_points)}개")
+        # logging.info(f"제거된 방문지점: {len(self.removed_points)}개")
 
         return self.final_points, self.final_entrances, self.removed_points
