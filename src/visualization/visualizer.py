@@ -7,6 +7,7 @@ import plotly.express as px
 import numpy as np
 import plotly.graph_objects as go
 from shapely.geometry import Point
+import json
 
 class Visualizer:
     def __init__(self, margin_ratio=0.2, figsize=(10,10)):
@@ -171,94 +172,52 @@ class Visualizer:
         plt.show()
         print(f"최종 지도 저장 완료: {save_path}")
 
-    def plot_matches(self, clusters_json, save_path="matches_map.html"):
+    def plot_matches(self, clusters_df, entrances_df, save_name="matches_map"):
+
+        entrances_safe = entrances_df.where(pd.notna(entrances_df), None).to_dict(orient='records')
+
+        html_str = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <title>Clusters Map</title>
+            <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+            <script>
+                // 데이터를 전역 변수로 설정
+                const clustersData = {json.dumps(clusters_df)};
+                const entrancesData = {json.dumps(entrances_safe)};
+                const regionNameData = "{save_name}";
+            </script>
+            <script src="../clusters_map.js"></script>
+            <script>
+                // 페이지 로드 후 초기화 및 데이터 설정
+                document.addEventListener('DOMContentLoaded', function() {{
+                    
+                    // 맵 초기화
+                    const mapInitialized = initializeMap();
+
+                    if (mapInitialized) {{
+                        // 이벤트 설정
+                        setupClickEvent();
+                        setupDownloadButton();
+                        // 데이터 설정
+                        setData(clustersData, entrancesData, regionNameData);
+                    }} else {{
+                        console.error("Map initialization failed!");
+                    }}
+                }});
+            </script>
+        </head>
+        <body>
+            <div id="map" style="width:100%;height:800px;"></div>
+            <button id="downloadBtn" style="position:absolute;top:10px;right:10px;z-index:1000;padding:10px;">
+                Export clusters_json
+            </button>
+        </body>
+        </html>
         """
-        clusters_json: ClusterEntranceMatcher.match() 반환값
-        HTML 형식의 인터랙티브 지도 저장
-        """
-        # -----------------------------
-        # 클러스터 포인트 DataFrame
-        # -----------------------------
-        points_data = []
-        for cluster in clusters_json:
-            cid = cluster["cluster_id"]
-            for pt in cluster["points"]:
-                points_data.append({
-                    "lat": pt["lat"],
-                    "lon": pt["lon"],
-                    "cluster_id": cid,
-                    "name": pt["meta"].get("name", "")
-                })
-        df_points = pd.DataFrame(points_data)
 
-        # -----------------------------
-        # 진입점 DataFrame
-        # -----------------------------
-        entrances_data = []
-        # 진입점 중복 제거 및 cluster_ids 누적
-        entr_dict = {}
-        for cluster in clusters_json:
-            cid = cluster["cluster_id"]
-            for ent in cluster["entrances"]:
-                key = (ent["lat"], ent["lon"])
-                if key not in entr_dict:
-                    entr_dict[key] = {
-                        "lat": ent["lat"],
-                        "lon": ent["lon"],
-                        "cluster_ids": [cid],
-                        "distance_m": ent.get("distance_m"),
-                        "duration_s": ent.get("duration_s")
-                    }
-                else:
-                    entr_dict[key]["cluster_ids"].append(cid)
-        df_entrances = pd.DataFrame(list(entr_dict.values()))
-
-        # -----------------------------
-        # 클러스터 포인트 시각화
-        # -----------------------------
-        fig = px.scatter_mapbox(
-            df_points,
-            lat="lat",
-            lon="lon",
-            color="cluster_id",
-            hover_name="name",
-            zoom=12,
-            height=800,
-            size_max=15
-        )
-
-        # -----------------------------
-        # 진입점 시각화
-        # -----------------------------
-        for i, row in df_entrances.iterrows():
-            fig.add_trace(go.Scattermapbox(
-                lat=[row["lat"]],
-                lon=[row["lon"]],
-                mode="markers",
-                marker=dict(size=18, color="black"),
-                hovertemplate=(
-                    f"Accessible Clusters: {row['cluster_ids']}<br>"
-                    f"Distance: {row['distance_m']} m<br>"
-                    f"Duration: {row['duration_s']} s<extra></extra>"
-                ),
-                name="Entrance"
-            ))
-
-        # -----------------------------
-        # 레이아웃
-        # -----------------------------
-        fig.update_layout(
-            mapbox_style="carto-positron",
-            mapbox_center=dict(
-                lat=df_points["lat"].mean() if not df_points.empty else 0,
-                lon=df_points["lon"].mean() if not df_points.empty else 0
-            ),
-            margin={"r":0,"t":0,"l":0,"b":0},
-            showlegend=True
-        )
-
-        # -----------------------------
-        # 저장
-        # -----------------------------
-        fig.write_html(save_path)
-        print(f"인터랙티브 매칭 지도 저장 완료: {save_path}")
+        with open(f"./src/visualization/html/{save_name}.html", "w", encoding="utf-8-sig") as f:
+            f.write(html_str)
+        

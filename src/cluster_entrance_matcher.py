@@ -86,7 +86,7 @@ class ClusterEntranceMatcher:
         if exclude_noise and -1 in groups:
             groups = [g for g in groups if g != -1]
 
-        clusters_json = []
+        clusters_df = []
 
         for g in groups:
             group_df = self.points_df[self.points_df['cluster'] == g]
@@ -103,7 +103,7 @@ class ClusterEntranceMatcher:
                 cand_pts = pts
 
             # Haversine 거리 기준 상위 N개 entrance 선택
-            N = 3
+            N = 6
             dmat = self._haversine_matrix(cand_pts, self._entrances_coords)  # (P, M)
             flat_indices = np.argsort(dmat, axis=None)[:N]  # 가장 가까운 N개 flat index
             p_indices, e_indices = np.unravel_index(flat_indices, dmat.shape)  # 각 인덱스 쌍
@@ -167,6 +167,6 @@ class ClusterEntranceMatcher:
                 ]
             }
 
-            clusters_json.append(cluster_dict)
+            clusters_df.append(cluster_dict)
 
-        return clusters_json
+        return clusters_df

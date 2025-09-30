@@ -61,16 +61,16 @@ def main(
 
     matcher = ClusterEntranceMatcher(points_df, final_entrances_df)
 
-    clusters_json = matcher.match(
+    clusters_df = matcher.match(
         sample_rate=config.sample_rate,
         osrm_url=config.osrm_url,
         exclude_noise=config.exclude_noise
     )
 
-    # viz.plot_matches(clusters_json)
-
-    with open(f"{region_name}.json", "w", encoding="utf-8") as f:
-        json.dump(clusters_json, f, ensure_ascii=False, indent=2)
+    viz.plot_matches(clusters_df, entrances_df, region_name)
+                     
+    # with open(f"{region_name}.json", "w", encoding="utf-8") as f:
+    #    json.dump(clusters_df, f, ensure_ascii=False, indent=2)
     
 
     return final_points, final_entrances
