@@ -355,7 +355,7 @@ function setupDownloadButton() {
         const csvUrl = URL.createObjectURL(csvBlob);
         const dlCsv = document.createElement('a');
         dlCsv.href = csvUrl;
-        dlCsv.download = regionName + ".csv";
+        dlCsv.download = regionName + "_IC.csv";
         document.body.appendChild(dlCsv);
         dlCsv.click();
         document.body.removeChild(dlCsv);
