@@ -76,7 +76,7 @@ def main(
     return final_points, final_entrances
 
 def get_final_entrances_df(final_entrances: np.ndarray, entrances_df: pd.DataFrame) -> pd.DataFrame:
-    if final_entrances.size == 0:
+    if final_entrances is None or final_entrances.size == 0:
         return pd.DataFrame(columns=entrances_df.columns)
 
     # np.isclose를 사용해 위도/경도 비교 (소수점 오차 방지)

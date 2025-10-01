@@ -19,12 +19,12 @@ class ClusterEntranceMatcher:
     """
     def __init__(self, points_df: pd.DataFrame, entrances_df: pd.DataFrame):
         # 입력 검증
-        if not {'lat','lon','cluster'}.issubset(points_df.columns):
-            raise ValueError("points_df는 'lat','lon','group' 컬럼을 포함해야 합니다.")
-        if not {'lat','lon'}.issubset(entrances_df.columns):
-            raise ValueError("entrances_df는 'lat','lon' 컬럼을 포함해야 합니다.")
+        # if not {'lat','lon','cluster'}.issubset(points_df.columns):
+        #     raise ValueError("points_df는 'lat','lon','group' 컬럼을 포함해야 합니다.")
+        # if not {'lat','lon'}.issubset(entrances_df.columns):
+        #     raise ValueError("entrances_df는 'lat','lon' 컬럼을 포함해야 합니다.")
 
-        self.points_df = points_df.copy().reset_index(drop=True)
+        self.points_df = points_df[points_df['cluster'] >= 0].copy().reset_index(drop=True)
         self.entrances_df = entrances_df.copy().reset_index(drop=True)
         # np arrays for computation
         self._entrances_coords = self.entrances_df[['lat','lon']].values  # shape (M,2)
@@ -102,40 +102,45 @@ class ClusterEntranceMatcher:
             else:
                 cand_pts = pts
 
-            # Haversine 거리 기준 상위 N개 entrance 선택
-            N = 6
-            dmat = self._haversine_matrix(cand_pts, self._entrances_coords)  # (P, M)
-            flat_indices = np.argsort(dmat, axis=None)[:N]  # 가장 가까운 N개 flat index
-            p_indices, e_indices = np.unravel_index(flat_indices, dmat.shape)  # 각 인덱스 쌍
-
             entrances_info = []
 
-            for p_idx, e_idx in zip(p_indices, e_indices):
-                rep_lat, rep_lon = float(cand_pts[p_idx,0]), float(cand_pts[p_idx,1])
-                entr_lat, entr_lon = float(self._entrances_coords[e_idx,0]), float(self._entrances_coords[e_idx,1])
-                dist_m = float(dmat[p_idx, e_idx])
-                duration_s = np.nan
+            # entrances_coords가 없으면 빈 배열 처리
+            if self._entrances_coords.size > 0:
+                # Haversine 거리 기준 상위 N개 entrance 선택
+                N = 6
+                dmat = self._haversine_matrix(cand_pts, self._entrances_coords)  # (P, M)
+                flat_indices = np.argsort(dmat, axis=None)[:N]  # 가장 가까운 N개 flat index
+                p_indices, e_indices = np.unravel_index(flat_indices, dmat.shape)  # 각 인덱스 쌍
 
-                # OSRM Table API 호출
-                tbl = self._osrm_table(np.array([[rep_lat, rep_lon]]),
-                                    np.array([[entr_lat, entr_lon]]),
-                                    osrm_url)
-                if tbl['durations'].size > 0:
-                    duration_s = float(tbl['durations'][0,0])
-                if tbl['distances'].size > 0:
-                    dist_m = float(tbl['distances'][0,0])
+                for p_idx, e_idx in zip(p_indices, e_indices):
+                    rep_lat, rep_lon = float(cand_pts[p_idx,0]), float(cand_pts[p_idx,1])
+                    entr_lat, entr_lon = float(self._entrances_coords[e_idx,0]), float(self._entrances_coords[e_idx,1])
+                    dist_m = float(dmat[p_idx, e_idx])
+                    duration_s = np.nan
 
-                # entrance 메타데이터 안전하게 처리
-                entr_meta_row = self.entrances_df.reset_index().iloc[e_idx].to_dict()
-                safe_entr_meta = {k: (None if pd.isna(v) else v) for k, v in entr_meta_row.items()}
+                    # OSRM Table API 호출
+                    if osrm_url is not None:
+                        tbl = self._osrm_table(np.array([[rep_lat, rep_lon]]),
+                                            np.array([[entr_lat, entr_lon]]),
+                                            osrm_url)
+                        if tbl['durations'].size > 0:
+                            duration_s = float(tbl['durations'][0,0])
+                        if tbl['distances'].size > 0:
+                            dist_m = float(tbl['distances'][0,0])
 
-                entrances_info.append({
-                    "lat": entr_lat,
-                    "lon": entr_lon,
-                    "distance_m": dist_m,
-                    "duration_s": duration_s,
-                    "meta": safe_entr_meta
-                })
+                    # entrance 메타데이터 안전하게 처리
+                    entr_meta_row = self.entrances_df.reset_index().iloc[e_idx].to_dict()
+                    safe_entr_meta = {k: (None if pd.isna(v) else v) for k, v in entr_meta_row.items()}
+
+                    entrances_info.append({
+                        "lat": entr_lat,
+                        "lon": entr_lon,
+                        "distance_m": dist_m,
+                        "duration_s": duration_s,
+                        "meta": safe_entr_meta
+                    })
+
+            # entrances_coords가 없으면 entrances_info는 그대로 빈 리스트([])
 
             # lat, lon 중복 제거
             seen_coords = set()
@@ -151,9 +156,9 @@ class ClusterEntranceMatcher:
 
             # point 메타데이터 안전 처리 후 JSON 구조 생성
             cluster_dict = {
-                "cluster_id": int(g),
-                "representative": {"lat": rep_lat, "lon": rep_lon},
-                "entrances": unique_entrances,
+                "cluster": int(g),
+                "representative": {"lat": float(cand_pts[0,0]), "lon": float(cand_pts[0,1])},
+                "entrances": unique_entrances,  # entrances가 없으면 빈 배열
                 "points": [
                     {
                         "lat": float(row["lat"]),
@@ -161,7 +166,7 @@ class ClusterEntranceMatcher:
                         "meta": {
                             k: (None if pd.isna(v) else v)
                             for k, v in row.to_dict().items()
-                            if k != "group"
+                            if k != "cluster"
                         }
                     } for _, row in group_df.iterrows()
                 ]

@@ -93,17 +93,19 @@ class IsolatedFilter:
             # 3. 최종 보존 점 목록 추가
             if len(points_final) > 0:
                 retained_points.append(points_final)
+        if getattr(seg, 'nearby_entrances', np.empty((0, 2))).size > 0:
+            self.final_points = np.vstack(retained_points) if retained_points else np.empty((0,2))
+            self.final_entrances = np.vstack(
+                [getattr(seg, 'nearby_entrances', np.empty((0,2))) for seg in self.segments if getattr(seg, 'nearby_entrances', np.empty((0,2))).size > 0]
+            ) if self.segments else np.empty((0,2))
 
-        self.final_points = np.vstack(retained_points) if retained_points else np.empty((0,2))
-        self.final_entrances = np.vstack(
-            [getattr(seg, 'nearby_entrances', np.empty((0,2))) for seg in self.segments if getattr(seg, 'nearby_entrances', np.empty((0,2))).size > 0]
-        ) if self.segments else np.empty((0,2))
+            # 제거된 점 합치기
+            non_empty_removed = [pts for pts in removed_points_list if pts.size > 0]
+            self.removed_points = np.vstack(non_empty_removed) if non_empty_removed else np.empty((0,2))
 
-        # 제거된 점 합치기
-        non_empty_removed = [pts for pts in removed_points_list if pts.size > 0]
-        self.removed_points = np.vstack(non_empty_removed) if non_empty_removed else np.empty((0,2))
-
-        logging.info(f"최종 방문 지점: {len(self.final_points)}개, 인접 진입점: {len(self.final_entrances)}개")
-        # logging.info(f"제거된 방문지점: {len(self.removed_points)}개")
+            logging.info(f"최종 방문 지점: {len(self.final_points)}개, 인접 진입점: {len(self.final_entrances)}개")
+            # logging.info(f"제거된 방문지점: {len(self.removed_points)}개")
+        else:
+            print("진입점이 없어 필터링을 수행할 수 없습니다.")
 
         return self.final_points, self.final_entrances, self.removed_points

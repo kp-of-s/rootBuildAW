@@ -45,10 +45,18 @@ class Segment:
         전체 방문지점 CSV를 받아 DBSCAN으로 그룹핑하고
         Segment 인스턴스 리스트 반환.
         """
-        coords = points_df[['lat','lon']].values
+        # cluster >= 0인 부분만 추출
+        filtered_df = points_df[points_df['cluster'] >= 0]
 
+        # 좌표 배열 생성
+        coords = filtered_df[['lat', 'lon']].values
+
+        # DBSCAN 실행
         clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(coords)
-        points_df['group'] = clustering.labels_
+
+        # 결과 라벨을 원래 points_df에 반영
+        points_df.loc[points_df['cluster'] >= 0, 'group'] = clustering.labels_
+
 
         segments = []
         for g in set(clustering.labels_):

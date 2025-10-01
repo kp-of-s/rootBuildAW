@@ -57,7 +57,7 @@ function drawPoints() {
             points.push({
                 lat: pt.lat,
                 lon: pt.lon,
-                cluster_id: cluster.cluster_id,
+                cluster: cluster.cluster,
                 name: pt.meta?.name || "",
                 isEditable: false,
                 inCluster: false
@@ -69,7 +69,7 @@ function drawPoints() {
             points.push({
                 lat: ent.lat,
                 lon: ent.lon,
-                cluster_id: cluster.cluster_id,
+                cluster: cluster.cluster,
                 name: ent.meta?.시설명 || "",
                 isEntrance: true,
                 inCluster: true
@@ -86,7 +86,7 @@ function drawPoints() {
             points.push({
                 lat: ent.lat,
                 lon: ent.lon,
-                cluster_id: undefined,
+                cluster: undefined,
                 name: ent.시설명 || "",
                 isEntrance: true,
                 inCluster: false
@@ -97,7 +97,7 @@ function drawPoints() {
     const colors = points.map(p => {
         if(p.isEntrance && p.inCluster) return 'black';
         if(p.isEntrance && !p.inCluster) return 'red';
-        return p.cluster_id !== undefined ? `hsl(${(p.cluster_id*137.5)%360},100%,50%)` : 'blue'; 
+        return p.cluster !== undefined ? `hsl(${(p.cluster*137.5)%360},100%,50%)` : 'blue'; 
         // 일반 포인트는 눈에 잘 띄는 색상(HSL 해시)
     });
 
@@ -110,7 +110,7 @@ function drawPoints() {
             size: points.map(p => p.isEntrance ? 14 : 10),
             color: colors
         },
-        text: points.map(p => `${p.name || ""} (Cluster: ${p.cluster_id ?? "-"})`),
+        text: points.map(p => `${p.name || ""} (Cluster: ${p.cluster ?? "-"})`),
         hoverinfo: 'text',
         customdata: points.map(p => p)
     };
@@ -144,14 +144,14 @@ function showEntranceInfo(entrance) {
         const label = document.createElement('label');
         const cb = document.createElement('input');
         cb.type = 'checkbox';
-        cb.value = cluster.cluster_id;
+        cb.value = cluster.cluster;
 
         const exists = cluster.entrances?.some(ent => ent.lat === entrance.lat 
                                                         && ent.lon === entrance.lon);
         if (exists) cb.checked = true;
 
         label.appendChild(cb);
-        label.appendChild(document.createTextNode(' Cluster ' + cluster.cluster_id));
+        label.appendChild(document.createTextNode(' Cluster ' + cluster.cluster));
         div.appendChild(label);
         div.appendChild(document.createElement('br'));
     });
@@ -168,7 +168,7 @@ function showEntranceInfo(entrance) {
             // 기존 제거
             cluster.entrances = cluster.entrances?.filter(ent => !(ent.lat === entrance.lat && ent.lon === entrance.lon)) || [];
             sourceEntrance = entrances_df.find(ent => ent.lat === entrance.lat && ent.lon === entrance.lon);
-            if(checked.includes(cluster.cluster_id)) {
+            if(checked.includes(cluster.cluster)) {
                 const newEntrance = {
                     lat: sourceEntrance.lat,
                     lon: sourceEntrance.lon,
@@ -189,7 +189,7 @@ function showEntranceInfo(entrance) {
         selectedEntrances = [];
         clusters_json.forEach(cluster => {
             cluster.entrances?.forEach(ent => {
-                selectedEntrances.push({lat: ent.lat, lon: ent.lon, cluster_id: cluster.cluster_id});
+                selectedEntrances.push({lat: ent.lat, lon: ent.lon, cluster: cluster.cluster});
             });
         });
 
@@ -220,12 +220,12 @@ function setupClickEvent() {
 function createICList() {
     const rows = [];
     // 헤더 행
-    rows.push(["cluster_id", "IC명", "노선명", "lat", "lon"]);
+    rows.push(["cluster", "IC명", "노선명", "lat", "lon"]);
 
     clusters_json.forEach(cluster => {
         cluster.entrances?.forEach(ent => {
             rows.push([
-                cluster.cluster_id,
+                cluster.cluster,
                 ent.meta?.시설명 || "",
                 ent.meta?.노선명 || "",
                 ent.lat,
@@ -248,14 +248,14 @@ function createICList() {
 function createNearestICList() {
     const rows = [];
     // 헤더 행
-    rows.push(["cluster_id", "IC명", "노선명", "lat", "lon"]);
+    rows.push(["cluster", "IC명", "노선명", "lat", "lon"]);
 
     sortEntrancesByClusterAnchor();
     
     clusters_json.forEach(cluster => {
          const ent = cluster.entrances[0];
             rows.push([
-                cluster.cluster_id,
+                cluster.cluster,
                 ent.meta?.시설명 || "",
                 ent.meta?.노선명 || "",
                 ent.lat,
@@ -274,9 +274,9 @@ function createNearestICList() {
 }
 
 function sortEntrancesByClusterAnchor() {
-    [...new Set(clusters_json.map(c => c.cluster_id))].forEach(clusterId => {
-        // 해당 cluster_id의 모든 cluster 객체
-        const clusterGroup = clusters_json.filter(c => c.cluster_id === clusterId);
+    [...new Set(clusters_json.map(c => c.cluster))].forEach(clusterId => {
+        // 해당 cluster의 모든 cluster 객체
+        const clusterGroup = clusters_json.filter(c => c.cluster === clusterId);
 
         // 1. cluster 내 모든 좌표 후보를 모음
         const candidatePoints = [];
