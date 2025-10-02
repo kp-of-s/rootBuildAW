@@ -9,5 +9,5 @@
 src/__pycache__
 src/visualization/__pycache__
 src/visualization/html/*.html
-/data/region/*.csv
+data/region/*
 /.vscode/*
